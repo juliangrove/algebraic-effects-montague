@@ -60,9 +60,7 @@ instance Handleable handlers '[] '[] where
 instance Handleable ([Entity] -> Entity, () -> [Entity]) p q
       => Handleable ([Entity] -> Entity, () -> [Entity])
                     (([Entity] ->  Entity) ': p) q where
-  handle hndlrs (Effect m) = m $ \x k -> let newhndlrs = (fst hndlrs . tail,
-                                                          snd hndlrs)
-                                         in handle hndlrs $ k $ fst hndlrs x
+  handle hndlrs (Effect m) = m $ \x k -> handle hndlrs $ k $ fst hndlrs x
 
 -- | Handle a 'get'.
 instance Handleable ([Entity] -> Entity, () -> [Entity]) p q
