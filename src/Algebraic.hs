@@ -1,4 +1,5 @@
 {-# LANGUAGE
+    AllowAmbiguousTypes,
     DataKinds,
     FlexibleContexts,
     FlexibleInstances,
@@ -33,7 +34,7 @@ instance Effect F where
 
   (>>=) :: F p v -> (v -> F q w) -> F (p :++ q) w
   Pure m >>= k = m k
-  Effect m >>= k = Effect $ \h -> f $ \e k' -> h e (\x -> k' x >>= k)
+  Effect m >>= k = Effect $ \h -> m $ \e k' -> h e (\x -> k' x >>= k)
 
 join :: F p (F q v) -> F (p :++ q) v
 join m = m >>= id
