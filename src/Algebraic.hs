@@ -1,5 +1,4 @@
 {-# LANGUAGE
-    AllowAmbiguousTypes,
     DataKinds,
     FlexibleContexts,
     FlexibleInstances,
@@ -21,8 +20,7 @@ import Model
 -- | The data type of effectful computations.
 data F p v where
   Pure :: (forall o . (v -> o) -> o) -> F '[] v
-  Effect :: (forall o . (e -> (a -> F p v) -> o) -> o)
-         -> F ((e -> a) ': p) v
+  Op :: (forall o . (e -> (a -> F p v) -> o) -> o) -> F ((e -> a) ': p) v
 
 -- | Computations with algebraic effects form a graded monad.        
 instance Effect F where
@@ -34,14 +32,14 @@ instance Effect F where
 
   (>>=) :: F p v -> (v -> F q w) -> F (p :++ q) w
   Pure m >>= k = m k
-  Effect m >>= k = Effect $ \h -> m $ \e k' -> h e (\x -> k' x >>= k)
+  Op m >>= k = Op $ \h -> m $ \e k' -> h e (\x -> k' x >>= k)
 
 join :: F p (F q v) -> F (p :++ q) v
 join m = m >>= id
 
 instance Functor (F p) where
   fmap f (Pure m) = Pure $ \k -> m (k . f)
-  fmap f (Effect m) = Effect $ \h -> m $ \e k -> h e (\x -> fmap f $ k x)
+  fmap f (Op m) = Op $ \h -> m $ \e k -> h e (\x -> fmap f $ k x)
 
 
 -- =====================
@@ -61,26 +59,26 @@ instance Handleable handlers '[] '[] where
 instance Handleable ([Entity] -> Entity, () -> [Entity]) p q
       => Handleable ([Entity] -> Entity, () -> [Entity])
                     (([Entity] ->  Entity) ': p) q where
-  handle hndlrs (Effect m) = m $ \x k -> handle hndlrs $ k $ fst hndlrs x
+  handle hndlrs (Op m) = m $ \x k -> handle hndlrs $ k $ fst hndlrs x
 
 -- | Handle a 'get'.
 instance Handleable ([Entity] -> Entity, () -> [Entity]) p q
       => Handleable ([Entity] -> Entity, () -> [Entity])
                     ((() -> [Entity]) ': p) q where
-  handle hndlrs (Effect m) = m $ \_ k -> handle hndlrs $ k $ snd hndlrs ()
+  handle hndlrs (Op m) = m $ \() k -> handle hndlrs $ k $ snd hndlrs ()
 
 -- | Handle a 'put'.
 instance Handleable ([Entity] -> Entity, () -> [Entity]) p q
       => Handleable ([Entity] -> Entity, () -> [Entity])
                     (([Entity] -> ()) ': p) q where
-  handle hndlrs (Effect m) = m $ \g k -> handle (fst hndlrs, (\() -> g)) $ k ()
+  handle hndlrs (Op m) = m $ \g k -> handle (fst hndlrs, (\() -> g)) $ k ()
 
 -- =====================
 -- == Non-determinism ==
 -- =====================
 
 choose :: [Entity] -> (Entity -> F p v) -> F (([Entity] -> Entity) ': p) v
-choose p k = Effect $ \h -> h p k
+choose p k = Op $ \h -> h p k
 
 choose' :: [Entity] -> F '[[Entity] -> Entity] Entity
 choose' p = choose p return
@@ -91,10 +89,10 @@ choose' p = choose p return
 -- ===========
 
 get :: () -> ([Entity] -> F p v) -> F ((() -> [Entity]) ': p) v
-get () k = Effect $ \h -> h () k
+get () k = Op $ \h -> h () k
 
 put :: [Entity] -> (() -> F p v) -> F (([Entity] -> ()) ': p) v
-put g k = Effect $ \h -> h g k
+put g k = Op $ \h -> h g k
 
 get' :: () -> F '[() -> [Entity]] [Entity]
 get' () = get () return
@@ -120,7 +118,7 @@ bind :: F p Entity -> F (p :++ [() -> [Entity], [Entity] -> ()]) Entity
 bind m = m >>= \x -> get' () >>= \g -> put' (x:g) >>= \() -> return x
 
 itself :: F '[() -> [Entity]] Entity
-itself = fmap head $ get'()
+itself = fmap head $ get' ()
 
 -- ==============
 -- == Examples ==
