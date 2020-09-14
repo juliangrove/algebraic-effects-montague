@@ -43,32 +43,42 @@ instance Functor (F p) where
   fmap f (Impure m) = Impure $ \h → m $ \e k → h e (\x → fmap f $ k x)
 
 
--- =====================
--- == Non-determinism ==
--- =====================
+-- ================
+-- == Operations ==
+-- ================
 
-choose :: [Entity] → (Entity → F p v) → F (([Entity] → Entity) ': p) v
-choose p k = Impure $ \h → h p k
+-- | The type of an operation taking parameter p and a-many arguments.
+type Operation p a = ∀l v. p → (a → F l v) → F ((p → a) ': l) v
 
-choose' :: [Entity] → F '[[Entity] → Entity] Entity
-choose' p = choose p return
+-- | Operations take a parameter, p, and a-many arguments. Handlers then use the
+-- parameter to choose which arguments they will further handle.
+op :: Operation p a
+op p k = Impure $ \h → h p k
+
+-- | The type of a computation consisting of a single operation.
+type Computation p a = p → F '[p → a] a
+
+-- | Computations (of one operation) just perform the operation and return the
+-- result.
+comp :: Computation p a
+comp p = op p return
 
 
 -- ===========
 -- == State ==
 -- ===========
 
-get :: () → ([Entity] → F p v) → F ((() → [Entity]) ': p) v
-get () k = Impure $ \h → h () k
+get :: Operation () [Entity]
+get = op
 
-put :: [Entity] → (() → F p v) → F (([Entity] → ()) ': p) v
-put g k = Impure $ \h → h g k
+put :: Operation [Entity] ()
+put = op
 
-get' :: () → F '[() → [Entity]] [Entity]
-get' () = get () return
+get' :: Computation () [Entity]
+get' = comp
 
-put' :: [Entity] → F '[[Entity] → ()] ()
-put' g = put g return
+put' :: Computation [Entity] ()
+put' = comp
 
 
 -- ====================
@@ -77,11 +87,11 @@ put' g = put g return
 
 type Quantifier = (Entity → Bool) → Bool
 
-quant :: Quantifier → (Entity → F p v) → F ((Quantifier → Entity) ': p) v
-quant q k = Impure $ \h → h q k
+quant :: Operation Quantifier Entity
+quant = op
 
-quant' :: Quantifier → F '[Quantifier → Entity] Entity
-quant' q = quant q return
+quant' :: Computation Quantifier Entity
+quant' = comp
 
 
 -- =====================
@@ -104,77 +114,22 @@ instance Handleable handlers p '[] Bool
   handle handlers (Impure m)
     = Pure $ m $ \q k → q $ \x → getVal $ handle handlers $ k x
 
--- | Handle a 'choose'.
-instance Handleable ([Entity] → Entity, () → [Entity]) p q v
-       ⇒ Handleable ([Entity] → Entity, () → [Entity])
-                    (([Entity] →  Entity) ': p) q v where
-  handle hndlrs (Impure m) = m $ \p k → handle hndlrs $ k $ fst hndlrs p
-
 -- | Handle a 'get'.
-instance Handleable ([Entity] → Entity, () → [Entity]) p q v
-       ⇒ Handleable ([Entity] → Entity, () → [Entity])
+instance Handleable (() → [Entity]) p q v
+       ⇒ Handleable (() → [Entity])
                     ((() → [Entity]) ': p) q v where
-  handle hndlrs (Impure m) = m $ \() k → handle hndlrs $ k $ snd hndlrs ()
+  handle hndlrs (Impure m) = m $ \() k → handle hndlrs $ k $ hndlrs ()
 
 -- | Handle a 'put'.
-instance Handleable ([Entity] → Entity, () → [Entity]) p q v
-       ⇒ Handleable ([Entity] → Entity, () → [Entity])
+instance Handleable (() → [Entity]) p q v
+       ⇒ Handleable (() → [Entity])
                     (([Entity] → ()) ': p) q v where
-  handle hndlrs (Impure m) = m $ \g k → handle (fst hndlrs, (\() → g)) $ k ()
-
-
--- =============
--- == Lexicon ==
--- =============
-
-(▹) :: F p (a → b) → F q a → F (p :++ q) b
-m ▹ n = join $ fmap (\f → fmap (\x → f x) n) m
-
-(◃) :: F p a → F q (a → b) → F (p :++ q) b
-m ◃ n = join $ fmap (\x → fmap (\f → f x) n) m
-
-every :: (Entity → Bool) → F '[Quantifier → Entity] Entity
-every pred = quant' (\scope → all scope $ filter pred entities)
-
-some :: (Entity → Bool) → F '[[Entity] → Entity] Entity
-some pred = choose' (filter pred entities)
-
--- | /some/ as a quantifier
-someQ :: (Entity → Bool) → F '[Quantifier → Entity] Entity
-someQ pred = quant' (\scope → any scope $ filter pred entities)
-
-bind :: F p Entity → F (p :++ [() → [Entity], [Entity] → ()]) Entity
-bind m = m >>= \x → get' () >>= \g → put' (x:g) >>= \() → return x
-
-itself :: F '[() → [Entity]] Entity
-itself = fmap head $ get' ()
-
-
--- ==============
--- == Examples ==
--- ==============
-
--- | sentence1: Some squid ate some octopus.
-sentence1 = some squid ◃ (return ate ▹ some octopus)
-
--- | sentence2: Some squid ate itself.
-sentence2 = bind (some squid) ◃ (return ate ▹ itself)
-
--- | sentence3: Every octopus ate itself.
-sentence3 = bind (every octopus) ◃ (return ate ▹ itself)
-
--- | sentence4: Some squid ate some octopus. (A sentence with 'someQ'.)
-sentence4 = someQ crab ◃ (return sipped ▹ someQ (iced latte))
+  handle hndlrs (Impure m) = m $ \g k → handle (\() → g) $ k ()
 
 
 -- ===========
 -- == Misc. ==
 -- ===========
-
--- | Handle a sentence with effects.
-handleSentence :: Handleable ([Entity] → Entity, () → [Entity]) p '[] Bool
-               ⇒ F p Bool → F '[] Bool
-handleSentence = (handle @([Entity] → Entity, () → [Entity])) (head, const [])
 
 -- | Retrieve the value of a computation with no effects.                 
 getVal :: F '[] v → v

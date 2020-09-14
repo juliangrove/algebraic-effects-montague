@@ -20,7 +20,9 @@ extra-source-files:  README.md
 
 library
   exposed-modules:     Algebraic
+                     , Fragment
                      , Model
+                     , Parameterized
   -- other-modules:
   -- other-extensions:
   build-depends:       base
