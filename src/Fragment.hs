@@ -46,6 +46,7 @@ every2 pred
   = H $ \k → Pure $ all (getVal . handle @(() → [Entity]) (const []) . k)
                        $ filter pred entities
 
+
 -- ==============
 -- == Examples ==
 -- ==============

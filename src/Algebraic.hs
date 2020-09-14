@@ -6,7 +6,6 @@
     InstanceSigs,
     MultiParamTypeClasses,
     RankNTypes,
-    TypeApplications,
     TypeFamilies,
     TypeOperators,
     UnicodeSyntax #-}
