@@ -61,7 +61,7 @@ sentence2 = bind (liftF (some squid)) ◃ (return ate ▹ liftF itself)
 sentence3 = bind (liftF (every1 octopus)) ◃ (return ate ▹ liftF itself)
 
 -- | sentence3': Every octopus ate itself.
-sentence3' :: Handleable (() -> [Entity]) l1 '[] Bool => H '[] l1 Bool
+sentence3' :: Handleable (() → [Entity]) l1 '[] Bool ⇒ H '[] l1 Bool
 sentence3' = bind (every2 octopus) ◃ (return ate ▹ liftF itself)
 
 -- | sentence4: Some crab sipped some iced latte.
