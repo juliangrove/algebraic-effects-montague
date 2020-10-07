@@ -87,11 +87,11 @@ put' = comp
 
 type Quantifier = (Entity -> Bool) -> Bool
 
-quant :: Operation Quantifier Entity
-quant = op
+scope :: Operation Quantifier Entity
+scope = op
 
-quant' :: Computation Quantifier Entity
-quant' = comp
+scope' :: Computation Quantifier Entity
+scope' = comp
 
 
 -- =====================

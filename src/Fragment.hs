@@ -25,10 +25,10 @@ m |> n = P.join $ fmap (\f -> fmap (\x -> f x) n) m
 m <| n = P.join $ fmap (\x -> fmap (\f -> f x) n) m
 
 every1 :: (Entity -> Bool) -> F '[Quantifier >-- Entity] Entity
-every1 pred = quant' (\scope -> all scope $ filter pred entities)
+every1 pred = scope' (\scope -> all scope $ filter pred entities)
 
 some :: (Entity -> Bool) -> F '[Quantifier >-- Entity] Entity
-some pred = quant' (\scope -> any scope $ filter pred entities)
+some pred = scope' (\scope -> any scope $ filter pred entities)
 
 bind :: H l2 ((() >-- [Entity]) : ([Entity] >-- ()) : l1) Entity
      -> H l2 l1 Entity
