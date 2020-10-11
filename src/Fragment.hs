@@ -1,6 +1,7 @@
 {-# LANGUAGE
     DataKinds,
     FlexibleContexts,
+    MonoLocalBinds,
     TypeApplications,
     TypeOperators #-}
 
@@ -40,11 +41,10 @@ bind m = m >>= \x ->
 itself :: F '[() >-- [Entity]] Entity
 itself = fmap head $ get' ()
 
-every2 :: Handleable (() -> [Entity]) l '[] Bool
+every2 :: (Handleable GetPutScopeHandler l '[] Bool ([Entity] -> Bool))
        => (Entity -> Bool) -> H '[] l Entity
-every2 pred
-  = H $ \k -> Pure $ all (getVal . handle @(() -> [Entity]) (const []) . k)
-                       $ filter pred entities
+every2 pred = H $ \k -> Pure $ all (\x -> flip getVal [] $ handleSentence (k x))
+                        $ filter pred entities
 
 
 -- ==============
@@ -61,8 +61,8 @@ sentence2 = bind (liftF (some squid)) <| (return ate |> liftF itself)
 sentence3 = bind (liftF (every1 octopus)) <| (return ate |> liftF itself)
 
 -- | sentence3': Every octopus ate itself.
-sentence3' :: Handleable (() -> [Entity]) l1 '[] Bool => H '[] l1 Bool
-sentence3' = bind (every2 octopus) <| (return ate |> liftF itself)
+sentence3' :: F '[] Bool
+sentence3' = lowerH $ bind (every2 octopus) <| (return ate |> liftF itself)
 
 -- | sentence4: Some crab sipped some iced latte.
 sentence4 = liftF (some crab) <| (return sipped |> liftF (some (iced latte)))
@@ -72,7 +72,7 @@ sentence4 = liftF (some crab) <| (return sipped |> liftF (some (iced latte)))
 -- == Misc. ==
 -- ===========
 
--- | Handle a sentence with effects.
-handleSentence :: Handleable (() -> [Entity]) p '[] Bool
-               => F p Bool -> F '[] Bool
-handleSentence = handle @(() -> [Entity]) (const [])
+-- | Handle a sentence with effects, using a 'GetPutScopeHandler'.
+handleSentence :: Handleable GetPutScopeHandler l '[] Bool ([Entity] -> Bool)
+               => F l Bool -> F '[] ([Entity] -> Bool)
+handleSentence = handle getPutScopeHandler
