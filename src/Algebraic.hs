@@ -139,57 +139,57 @@ instance Member handler handler where
 instance Member handler (handler, handlers) where
   getHandler = fst
 
--- | Look past the first component to retrieve a handler from the inside the
--- second component.
+-- | Look past the first component to retrieve a handler from inside the second
+-- component.
 instance Member (HandleVal v ([Entity] -> v)) handlers
       => Member (HandleVal v ([Entity] -> v)) (HandleGet v, handlers) where
   getHandler = getHandler . snd
 
--- | Look past the first component to retrieve a handler from the inside the
--- second component.
+-- | Look past the first component to retrieve a handler from inside the second
+-- component.
 instance Member (HandleVal v ([Entity] -> v)) handlers
       => Member (HandleVal v ([Entity] -> v)) (HandlePut v, handlers) where
   getHandler = getHandler . snd
 
--- | Look past the first component to retrieve a handler from the inside the
--- second component.
+-- | Look past the first component to retrieve a handler from inside the second
+-- component.
 instance Member (HandleVal v ([Entity] -> v)) handlers
       => Member (HandleVal v ([Entity] -> v)) (HandleScope, handlers) where
   getHandler = getHandler . snd
 
--- | Look past the first component to retrieve a handler from the inside the
--- second component.
+-- | Look past the first component to retrieve a handler from inside the second
+-- component.
 instance Member (HandleGet v) handlers
       => Member (HandleGet v)
                 (HandlePut v, handlers) where
   getHandler = getHandler . snd
 
--- | Look past the first component to retrieve a handler from the inside the
--- second component.
+-- | Look past the first component to retrieve a handler from inside the second
+-- component.
 instance Member (HandleGet v) handlers
       => Member (HandleGet v) (HandleScope, handlers) where
   getHandler = getHandler . snd
 
--- | Look past the first component to retrieve a handler from the inside the
--- second component.
+-- | Look past the first component to retrieve a handler from inside the second
+-- component.
 instance Member (HandlePut v) handlers
       => Member (HandlePut v) (HandleGet v, handlers) where
   getHandler = getHandler . snd
 
--- | Look past the first component to retrieve a handler from the inside the
--- second component.
+-- | Look past the first component to retrieve a handler from inside the second
+-- component.
 instance Member (HandlePut v) handlers
       => Member (HandlePut v) (HandleScope, handlers) where
   getHandler = getHandler . snd
 
--- | Look past the first component to retrieve a handler from the inside the
--- second component.
+-- | Look past the first component to retrieve a handler from inside the second
+-- component.
 instance Member HandleScope handlers
       => Member HandleScope (HandleGet v, handlers) where
   getHandler = getHandler . snd
 
--- | Look past the first component to retrieve a handler from the inside the
--- second component.
+-- | Look past the first component to retrieve a handler from inside the second
+-- component.
 instance Member HandleScope handlers
       => Member HandleScope (HandlePut v, handlers) where
   getHandler = getHandler . snd
