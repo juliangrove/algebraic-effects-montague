@@ -108,7 +108,6 @@ scope' = comp
 class Member handler handlers where
   getHandler :: handlers -> handler
 
-
 -- | A type for value handlers.
 type HandleVal v1 v2 = v1 -> F '[] v2
 -- | A type for operation handlers.
