@@ -1,10 +1,6 @@
 {-# LANGUAGE
-    AllowAmbiguousTypes,
-    ConstraintKinds,
     DataKinds,
-    FlexibleContexts,
     FlexibleInstances,
-    FunctionalDependencies,
     GADTs,
     InstanceSigs,
     MultiParamTypeClasses,
@@ -18,7 +14,9 @@
 module Algebraic where
 
 import Prelude hiding (Monad(..))
+import qualified Control.Monad.State as CMS
 import Control.Effect
+import Data.Functor.Identity
 import Data.Type.Set ((:++))
 import Model
 
@@ -27,7 +25,7 @@ data a >-- b
 -- | The data type of effectful computations.
 data F l v where
   Pure :: v -> F '[] v
-  Impure :: (forall o . (e -> (a -> F l v) -> o) -> o) -> F ((e >-- a) ': l) v
+  Impure :: (forall o . (p -> (a -> F l v) -> o) -> o) -> F ((p >-- a) ': l) v
 
 -- | Computations with algebraic effects form a graded monad.        
 instance Effect F where
@@ -104,114 +102,143 @@ scope' = comp
 -- == Effect handling ==
 -- =====================
 
--- | The class of handlers whose components may be retrieved.
-class Member handler handlers where
-  getHandler :: handlers -> handler
+-- | The class of handlers whose individual interpreters may be retrieved.
+class Retrievable interpreter handler where
+  retrieve :: handler -> interpreter
 
 -- | A type for value handlers.
-type HandleVal v1 v2 = v1 -> F '[] v2
--- | A type for operation handlers.
-type HandlerOf p a v = p -> (a -> F '[] v) -> F '[] v
+type HandleVal l v1 v2 = v1 -> F l v2
 
-type HandleGet v = HandlerOf () [Entity] ([Entity] -> v)
-type HandlePut v = HandlerOf [Entity] () ([Entity] -> v)
-type HandleScope = HandlerOf Quantifier Entity ([Entity] -> Bool)
+-- | A type for operation handlers.
+type HandlerOf p a l v = p -> (a -> F l v) -> F l v
+
+type StateHandler p a v = HandlerOf p a '[() >-- [Entity], [Entity] >-- ()] v
+type HandleStateVal v = HandleVal '[() >-- [Entity], [Entity] >-- ()] v v
+type HandleGet v = StateHandler () [Entity] v
+type HandlePut v = StateHandler [Entity] () v
+type HandleScope = StateHandler Quantifier Entity Bool
+
+-- | Interpret a 'get' occurrence.
+handleGet :: HandleGet v
+handleGet
+  = \_ k -> Impure $ \h -> h () $ \g -> case k g of
+                                          Impure m -> m $ \_ k' -> k' g
+
+-- | Interpret a 'put' occurrence.
+handlePut :: HandlePut v
+handlePut
+  = \g k -> Impure $ \h -> h () $ \_ -> case k () of
+                                          Impure m -> m $ \_ k' -> k' g
+
+-- | Interpret a 'scope' occurrence.
+handleScope :: HandleScope
+handleScope
+  = \q k ->
+  Impure $ \h -> h () $ \g ->
+  Impure $ \h' -> h' g $ \_ ->
+  Pure $ q $ \x -> case k x of
+                     Impure m -> m $ \_ k' ->
+                       case k' g of
+                         Impure m' -> m' $ \_ k'' ->
+                           case k'' () of
+                             Pure a -> a
+
+-- | Interpret a value.
+handleVal :: HandleStateVal v
+handleVal
+  = \v -> Impure $ \h -> h () $ \g -> Impure $ \h' -> h' g $ \_ -> Pure v
 
 -- | The type of handlers for computations possibly featuring 'get', 'put', and
 -- 'scope'.
-type GetPutScopeHandler = (HandleGet Bool,
-                           (HandlePut Bool,
-                            (HandleScope,
-                             HandleVal Bool ([Entity] -> Bool))))
-                          
+type GetPutScopeHandler
+  = (HandleGet Bool, (HandlePut Bool, (HandleScope, HandleStateVal Bool)))
+                                                    
 -- | A handler for computations possibly featuring 'get', 'put', and 'scope'.
 getPutScopeHandler :: GetPutScopeHandler
-getPutScopeHandler = (\_ k -> Pure $ \g -> let Pure f = k g in f g,
-                      (\g k -> Pure $ \_ -> let Pure f = k () in f g,
-                       (\q k -> Pure $ \g -> q $ \x -> let Pure f = k x in f g,
-                        Pure . const)))
+getPutScopeHandler = (handleGet, (handlePut, (handleScope, handleVal)))
 
--- | When the handlers have only one component.
-instance Member handler handler where
-  getHandler = id
+-- | When a handler has only one component.
+instance Retrievable interpreter interpreter where
+  retrieve = id
 
--- | Access the first component of a collection of handlers.
-instance Member handler (handler, handlers) where
-  getHandler = fst
+-- | Access the first component of a handler.
+instance Retrievable interpreter (interpreter, handler) where
+  retrieve = fst
 
--- | Look past the first component to retrieve a handler from inside the second
--- component.
-instance Member (HandleVal v ([Entity] -> v)) handlers
-      => Member (HandleVal v ([Entity] -> v)) (HandleGet v, handlers) where
-  getHandler = getHandler . snd
+-- | Look past the first component to retrieve an interpreter from inside the
+-- second component.
+instance Retrievable (HandleStateVal v) handler
+      => Retrievable (HandleStateVal v) (HandleGet v, handler) where
+  retrieve = retrieve . snd
 
--- | Look past the first component to retrieve a handler from inside the second
--- component.
-instance Member (HandleVal v ([Entity] -> v)) handlers
-      => Member (HandleVal v ([Entity] -> v)) (HandlePut v, handlers) where
-  getHandler = getHandler . snd
+-- | Look past the first component to retrieve a handler from inside the
+-- second component.
+instance Retrievable (HandleStateVal v) handler
+      => Retrievable (HandleStateVal v) (HandlePut v, handler) where
+  retrieve = retrieve . snd
 
--- | Look past the first component to retrieve a handler from inside the second
--- component.
-instance Member (HandleVal v ([Entity] -> v)) handlers
-      => Member (HandleVal v ([Entity] -> v)) (HandleScope, handlers) where
-  getHandler = getHandler . snd
+-- | Look past the first component to retrieve a handler from inside the
+-- second component.
+instance Retrievable (HandleStateVal v) handler
+      => Retrievable (HandleStateVal v) (HandleScope, handler) where
+  retrieve = retrieve . snd
 
--- | Look past the first component to retrieve a handler from inside the second
--- component.
-instance Member (HandleGet v) handlers
-      => Member (HandleGet v)
-                (HandlePut v, handlers) where
-  getHandler = getHandler . snd
+-- | Look past the first component to retrieve a handler from inside the
+-- second component.
+instance Retrievable (HandleGet v) handler
+      => Retrievable (HandleGet v) (HandlePut v, handler) where
+  retrieve = retrieve . snd
 
--- | Look past the first component to retrieve a handler from inside the second
--- component.
-instance Member (HandleGet v) handlers
-      => Member (HandleGet v) (HandleScope, handlers) where
-  getHandler = getHandler . snd
+-- | Look past the first component to retrieve a handler from inside the
+-- second component.
+instance Retrievable (HandleGet v) handler
+      => Retrievable (HandleGet v) (HandleScope, handler) where
+  retrieve = retrieve . snd
 
--- | Look past the first component to retrieve a handler from inside the second
--- component.
-instance Member (HandlePut v) handlers
-      => Member (HandlePut v) (HandleGet v, handlers) where
-  getHandler = getHandler . snd
+-- | Look past the first component to retrieve a handler from inside the
+-- second component.
+instance Retrievable (HandlePut v) handler
+      => Retrievable (HandlePut v) (HandleGet v, handler) where
+  retrieve = retrieve . snd
 
--- | Look past the first component to retrieve a handler from inside the second
--- component.
-instance Member (HandlePut v) handlers
-      => Member (HandlePut v) (HandleScope, handlers) where
-  getHandler = getHandler . snd
+-- | Look past the first component to retrieve a handler from inside the
+-- second component.
+instance Retrievable (HandlePut v) handler
+      => Retrievable (HandlePut v) (HandleScope, handler) where
+  retrieve = retrieve . snd
 
--- | Look past the first component to retrieve a handler from inside the second
--- component.
-instance Member HandleScope handlers
-      => Member HandleScope (HandleGet v, handlers) where
-  getHandler = getHandler . snd
+-- | Look past the first component to retrieve a handler from inside the
+-- second component.
+instance Retrievable HandleScope handler
+      => Retrievable HandleScope (HandleGet v, handler) where
+  retrieve = retrieve . snd
 
--- | Look past the first component to retrieve a handler from inside the second
--- component.
-instance Member HandleScope handlers
-      => Member HandleScope (HandlePut v, handlers) where
-  getHandler = getHandler . snd
+-- | Look past the first component to retrieve a handler from inside the
+-- second component.
+instance Retrievable HandleScope handler
+      => Retrievable HandleScope (HandlePut v, handler) where
+  retrieve = retrieve . snd
 
 -- | The class of handleable effects. Handle a computation associated with the
--- list of effects l1 and value type v1 to turn it into a computation with list
--- of effects l2 and value type v2, in a way that depends on the given handler.
-class Handleable handlers l1 l2 v1 v2 where
-  handle :: handlers -> F l1 v1 -> F l2 v2
+-- list of effects l1 and value type v1 to turn it into a computation associated
+-- with the list of effects l2 and value type v2, in a way that depends on the
+-- given handler.
+class Handleable handler l1 l2 v1 v2 where
+  handle :: handler -> F l1 v1 -> F l2 v2
 
 -- | Handle a value.
-instance Member (HandleVal v ([Entity] -> v)) handlers
-      => Handleable handlers '[] '[] v ([Entity] -> v) where
-  handle hndlrs (Pure v) = getHandler hndlrs v
+instance Retrievable (HandleStateVal v) handler
+      => Handleable handler '[] '[() >-- [Entity], [Entity] >-- ()] v v where
+  handle handler (Pure v) = retrieve handler v
 
 -- | Handle an operation.
-instance (Member (HandlerOf p a ([Entity] -> v)) handlers,
-          Handleable handlers l '[] v ([Entity] -> v))
-      => Handleable handlers (p >-- a ': l) '[] v ([Entity] -> v) where
-  handle hndlrs (Impure m)
-    = m $ \p k -> getHandler @(HandlerOf p a ([Entity] -> v))
-                  hndlrs p (\a -> handle hndlrs (k a))
+instance (Retrievable (StateHandler p a v) handler,
+          Handleable handler l '[() >-- [Entity], [Entity] >-- ()] v v)
+      => Handleable handler (p >-- a ': l)
+         '[() >-- [Entity], [Entity] >-- ()] v v where
+  handle handler (Impure m)
+    = m $ \p k -> retrieve @(StateHandler p a v)
+                  handler p (\a -> handle handler (k a))
 
 
 -- ===========
@@ -222,3 +249,10 @@ instance (Member (HandlerOf p a ([Entity] -> v)) handlers,
 -- "cherry".
 getVal :: F '[] v -> v
 getVal (Pure v) = v
+
+-- | Evalutate a computation with one 'get' and one 'put' into the State monad.
+evalState :: F '[() >-- [Entity], [Entity] >-- ()] v -> CMS.State [Entity] v
+evalState (Impure m) = CMS.StateT $ \g -> m $ \_ k -> case k g of
+                                           Impure m' -> m' $ \g' k' ->
+                                             case k' () of
+                                               Pure v -> Identity (v, g')
