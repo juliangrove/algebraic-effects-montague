@@ -25,7 +25,12 @@ data a >-- b
 -- | The data type of effectful computations.
 data F l v where
   Pure :: v -> F '[] v
-  Impure :: (forall o . (p -> (a -> F l v) -> o) -> o) -> F ((p >-- a) ': l) v
+  Impure :: (forall o . (p -> (a -> F l v) -> o) -> o) -> F (p >-- a ': l) v
+
+-- | For any effect l, F l is a /Functor/.
+instance Functor (F l) where
+  fmap f (Pure v) = Pure $ f v
+  fmap f (Impure m) = Impure $ \h -> m $ \p k -> h p (\a -> fmap f $ k a)
 
 -- | Computations with algebraic effects form a graded monad.        
 instance Effect F where
@@ -39,20 +44,16 @@ instance Effect F where
   Pure v >>= k = k v
   Impure m >>= k = Impure $ \h -> m $ \p k' -> h p (\a -> k' a >>= k)
 
+-- | Graded monadic 'join'.
 join :: F l1 (F l2 v) -> F (l1 :++ l2) v
 join m = m >>= id
-
-instance Functor (F l) where
-  fmap f (Pure v) = Pure $ f v
-  fmap f (Impure m) = Impure $ \h -> m $ \e k -> h e (\x -> fmap f $ k x)
-
 
 -- ================
 -- == Operations ==
 -- ================
 
 -- | The type of an operation taking parameter p and a-many arguments.
-type Operation p a = forall l v . p -> (a -> F l v) -> F ((p >-- a) ': l) v
+type Operation p a = forall l v . p -> (a -> F l v) -> F (p >-- a ': l) v
 
 -- | Operations take a parameter, p, and a-many arguments. Handlers then use the
 -- parameter to choose which arguments they will further handle.
@@ -106,56 +107,60 @@ scope' = comp
 class Retrievable interpreter handler where
   retrieve :: handler -> interpreter
 
--- | A type for value handlers.
-type HandleVal l v1 v2 = v1 -> F l v2
+-- | A type for value interpreters.
+type InterpretVal l v1 v2 = v1 -> F l v2
 
--- | A type for operation handlers.
-type HandlerOf p a l v = p -> (a -> F l v) -> F l v
+-- | A type for operation interpreters.
+type InterpretOp p a l v = p -> (a -> F l v) -> F l v
 
-type StateHandler p a v = HandlerOf p a '[() >-- [Entity], [Entity] >-- ()] v
-type HandleStateVal v = HandleVal '[() >-- [Entity], [Entity] >-- ()] v v
-type HandleGet v = StateHandler () [Entity] v
-type HandlePut v = StateHandler [Entity] () v
-type HandleScope = StateHandler Quantifier Entity Bool
-
--- | Interpret a 'get' occurrence.
-handleGet :: HandleGet v
-handleGet
-  = \_ k -> Impure $ \h -> h () $ \g -> case k g of
-                                          Impure m -> m $ \_ k' -> k' g
-
--- | Interpret a 'put' occurrence.
-handlePut :: HandlePut v
-handlePut
-  = \g k -> Impure $ \h -> h () $ \_ -> case k () of
-                                          Impure m -> m $ \_ k' -> k' g
-
--- | Interpret a 'scope' occurrence.
-handleScope :: HandleScope
-handleScope
-  = \q k ->
-  Impure $ \h -> h () $ \g ->
-  Impure $ \h' -> h' g $ \_ ->
-  Pure $ q $ \x -> case k x of
-                     Impure m -> m $ \_ k' ->
-                       case k' g of
-                         Impure m' -> m' $ \_ k'' ->
-                           case k'' () of
-                             Pure a -> a
+type InterpretStVal v = InterpretVal '[() >-- [Entity], [Entity] >-- ()] v v
 
 -- | Interpret a value.
-handleVal :: HandleStateVal v
-handleVal
-  = \v -> Impure $ \h -> h () $ \g -> Impure $ \h' -> h' g $ \_ -> Pure v
+interpretStVal :: InterpretStVal v
+interpretStVal = \v -> get () (\g -> put g (\() -> return v))
+
+type InterpretStOp p a v = InterpretOp p a '[() >-- [Entity], [Entity] >-- ()] v
+
+type InterpretGet v = InterpretStOp () [Entity] v
+type InterpretPut v = InterpretStOp [Entity] () v
+type InterpretScope = InterpretStOp Quantifier Entity Bool
+
+-- | Interpret a 'get' occurrence.
+interpretStGet :: InterpretGet v
+interpretStGet = \() k -> get () (\g -> case k g of
+                                          Impure m -> m $ \() k' -> k' g)
+
+-- | Interpret a 'put' occurrence.
+interpretStPut :: InterpretPut v
+interpretStPut = \g k -> get () (\g' -> case k () of
+                                          Impure m -> m $ \() k' -> k' g)
+
+-- | Interpret a 'scope' occurrence.
+interpretStScope :: InterpretScope
+interpretStScope = \q k ->
+                 get () (\g ->
+                 put g (\() ->
+                 return (q $ \x -> case k x of
+                                     Impure m -> m $ \_ k' ->
+                                       case k' g of
+                                         Impure m' -> m' $ \_ k'' ->
+                                           case k'' () of
+                                             Pure a -> a)))
 
 -- | The type of handlers for computations possibly featuring 'get', 'put', and
 -- 'scope'.
 type GetPutScopeHandler
-  = (HandleGet Bool, (HandlePut Bool, (HandleScope, HandleStateVal Bool)))
+  = (InterpretGet Bool,
+      (InterpretPut Bool,
+        (InterpretScope,
+          InterpretStVal Bool)))
                                                     
 -- | A handler for computations possibly featuring 'get', 'put', and 'scope'.
 getPutScopeHandler :: GetPutScopeHandler
-getPutScopeHandler = (handleGet, (handlePut, (handleScope, handleVal)))
+getPutScopeHandler = (interpretStGet,
+                       (interpretStPut,
+                         (interpretStScope,
+                           interpretStVal)))
 
 -- | When a handler has only one component.
 instance Retrievable interpreter interpreter where
@@ -167,56 +172,56 @@ instance Retrievable interpreter (interpreter, handler) where
 
 -- | Look past the first component to retrieve an interpreter from inside the
 -- second component.
-instance Retrievable (HandleStateVal v) handler
-      => Retrievable (HandleStateVal v) (HandleGet v, handler) where
+instance Retrievable (InterpretStVal v) handler
+      => Retrievable (InterpretStVal v) (InterpretGet v, handler) where
   retrieve = retrieve . snd
 
 -- | Look past the first component to retrieve a handler from inside the
 -- second component.
-instance Retrievable (HandleStateVal v) handler
-      => Retrievable (HandleStateVal v) (HandlePut v, handler) where
+instance Retrievable (InterpretStVal v) handler
+      => Retrievable (InterpretStVal v) (InterpretPut v, handler) where
   retrieve = retrieve . snd
 
 -- | Look past the first component to retrieve a handler from inside the
 -- second component.
-instance Retrievable (HandleStateVal v) handler
-      => Retrievable (HandleStateVal v) (HandleScope, handler) where
+instance Retrievable (InterpretStVal v) handler
+      => Retrievable (InterpretStVal v) (InterpretScope, handler) where
   retrieve = retrieve . snd
 
 -- | Look past the first component to retrieve a handler from inside the
 -- second component.
-instance Retrievable (HandleGet v) handler
-      => Retrievable (HandleGet v) (HandlePut v, handler) where
+instance Retrievable (InterpretGet v) handler
+      => Retrievable (InterpretGet v) (InterpretPut v, handler) where
   retrieve = retrieve . snd
 
 -- | Look past the first component to retrieve a handler from inside the
 -- second component.
-instance Retrievable (HandleGet v) handler
-      => Retrievable (HandleGet v) (HandleScope, handler) where
+instance Retrievable (InterpretGet v) handler
+      => Retrievable (InterpretGet v) (InterpretScope, handler) where
   retrieve = retrieve . snd
 
 -- | Look past the first component to retrieve a handler from inside the
 -- second component.
-instance Retrievable (HandlePut v) handler
-      => Retrievable (HandlePut v) (HandleGet v, handler) where
+instance Retrievable (InterpretPut v) handler
+      => Retrievable (InterpretPut v) (InterpretGet v, handler) where
   retrieve = retrieve . snd
 
 -- | Look past the first component to retrieve a handler from inside the
 -- second component.
-instance Retrievable (HandlePut v) handler
-      => Retrievable (HandlePut v) (HandleScope, handler) where
+instance Retrievable (InterpretPut v) handler
+      => Retrievable (InterpretPut v) (InterpretScope, handler) where
   retrieve = retrieve . snd
 
 -- | Look past the first component to retrieve a handler from inside the
 -- second component.
-instance Retrievable HandleScope handler
-      => Retrievable HandleScope (HandleGet v, handler) where
+instance Retrievable InterpretScope handler
+      => Retrievable InterpretScope (InterpretGet v, handler) where
   retrieve = retrieve . snd
 
 -- | Look past the first component to retrieve a handler from inside the
 -- second component.
-instance Retrievable HandleScope handler
-      => Retrievable HandleScope (HandlePut v, handler) where
+instance Retrievable InterpretScope handler
+      => Retrievable InterpretScope (InterpretPut v, handler) where
   retrieve = retrieve . snd
 
 -- | The class of handleable effects. Handle a computation associated with the
@@ -227,18 +232,18 @@ class Handleable handler l1 l2 v1 v2 where
   handle :: handler -> F l1 v1 -> F l2 v2
 
 -- | Handle a value.
-instance Retrievable (HandleStateVal v) handler
+instance Retrievable (InterpretStVal v) handler
       => Handleable handler '[] '[() >-- [Entity], [Entity] >-- ()] v v where
   handle handler (Pure v) = retrieve handler v
 
 -- | Handle an operation.
-instance (Retrievable (StateHandler p a v) handler,
+instance (Retrievable (InterpretStOp p a v) handler,
           Handleable handler l '[() >-- [Entity], [Entity] >-- ()] v v)
       => Handleable handler (p >-- a ': l)
          '[() >-- [Entity], [Entity] >-- ()] v v where
-  handle handler (Impure m)
-    = m $ \p k -> retrieve @(StateHandler p a v)
-                  handler p (\a -> handle handler (k a))
+  handle handler (Impure m) =
+    m $ \p k -> retrieve @(InterpretStOp p a v) handler
+                p (\a -> handle handler (k a))
 
 
 -- ===========

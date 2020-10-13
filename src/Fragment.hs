@@ -16,9 +16,11 @@ import Model
 -- == Lexicon ==
 -- =============
 
+-- | Forward application
 (|>) :: F l1 (v -> w) -> F l2 v -> F (l1 :++ l2) w
 m |> n = join $ fmap (\f -> fmap (\x -> f x) n) m
 
+-- | Backward application
 (<|) :: F l1 v -> F l2 (v -> w) -> F (l1 :++ l2) w
 m <| n = join $ fmap (\x -> fmap (\f -> f x) n) m
 
@@ -49,7 +51,7 @@ sentence1 = some squid <| (return ate |> some octopus)
 -- | sentence2: Some squid ate itself.
 sentence2 = bind (some squid) <| (return ate |> itself)
 
--- | sentence3: Every octopus ate itself.
+-- | sentence3: Every octopus ate itself
 sentence3 = bind (every octopus) <| (return ate |> itself)
 
 -- | sentence4: Some crab sipped some iced latte.
