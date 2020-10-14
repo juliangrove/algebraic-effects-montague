@@ -4,10 +4,10 @@ This repository contains the [Haskell](https://www.haskell.org/) code associated
 
 The module [Fragment.hs](https://github.com/juliangrove/algebraic-effects-montague/blob/master/src/Fragment.hs) features some example sentences. One may do, for example,
 
-	`flip CMS.runState [] $ evalState $ handleSentence sentence1`
+	flip CMS.runState [] $ evalState $ handleSentence sentence1
 	
 which should be `False` and externally static. Or, one may do
 
-	`flip CMS.runState [] $ evalState $ handleSentence sentence5`
+	flip CMS.runState [] $ evalState $ handleSentence sentence5
 	
 which should be `False` and externally dynamic.
